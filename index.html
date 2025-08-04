@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Federal Agency Org Chart</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        padding: 20px;
+    }
+    
+    h1 {
+        text-align: center;
+        color: #2c3e50;
+        margin-bottom: 30px;
+        font-weight: 300;
+    }
+    
+    .controls {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    
+    button {
+        background: #3498db;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        margin: 0 5px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.3s;
+    }
+    
+    button:hover {
+        background: #2980b9;
+    }
+    
+    #chart {
+        width: 100%;
+        height: 800px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        overflow: auto;
+    }
+    
+    .node circle {
+        cursor: pointer;
+        stroke: #fff;
+        stroke-width: 2px;
+    }
+    
+    .node.division circle {
+        fill: #e74c3c;
+    }
+    
+    .node.office circle {
+        fill: #3498db;
+    }
+    
+    .node.branch circle {
+        fill: #27ae60;
+    }
+    
+    .node.employee circle {
+        fill: #f39c12;
+    }
+    
+    .node.director circle {
+        fill: #8e44ad;
+    }
+    
+    .node text {
+        font-size: 12px;
+        font-weight: 500;
+        fill: #2c3e50;
+    }
+    
+    .node.division text {
+        font-size: 14px;
+        font-weight: 600;
+    }
+    
+    .node.office text {
+        font-size: 13px;
+        font-weight: 600;
+    }
+    
+    .link {
+        fill: none;
+        stroke: #95a5a6;
+        stroke-width: 2px;
+    }
+    
+    .tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 300px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    
+    .tooltip strong {
+        color: #74b9ff;
+    }
+    
+    .loading {
+        text-align: center;
+        padding: 50px;
+        color: #7f8c8d;
+        font-size: 18px;
+    }
+    
+    .error {
+        text-align: center;
+        padding: 50px;
+        color: #e74c3c;
+        font-size: 16px;
+    }
+    
+    .legend {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin: 0 15px 10px;
+        font-size: 12px;
+    }
+    
+    .legend-circle {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+        border: 2px solid #fff;
+    }
+</style>
+
+</head>
+<body>
+    <div class="container">
+        <h1>Federal Agency Organizational Chart</h1>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-circle" style="background-color: #8e44ad;"></div>
+            <span>Director</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-circle" style="background-color: #e74c3c;"></div>
+            <span>Division</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-circle" style="background-color: #3498db;"></div>
+            <span>Office</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-circle" style="background-color: #27ae60;"></div>
+            <span>Branch</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-circle" style="background-color: #f39c12;"></div>
+            <span>Employee</span>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <button onclick="expandAll()">Expand All</button>
+        <button onclick="collapseAll()">Collapse All</button>
+        <button onclick="resetZoom()">Reset View</button>
+    </div>
+    
+    <div id="chart">
+        <div class="loading">Loading organizational data...</div>
+    </div>
+</div>
+
+<script>
+    // Global variables
+    let svg, g, root, tree, tooltip, zoom;
+    let width = 1200, height = 800;
+    let i = 0;
+    
+    // Initialize the chart
+    function initChart() {
+        const container = d3.select("#chart");
+        container.select(".loading").remove();
+        
+        svg = container.append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .attr("viewBox", `0 0 ${width} ${height}`)
+            .style("background", "#fafbfc");
+        
+        g = svg.append("g");
+        
+        // Add zoom behavior
+        zoom = d3.zoom()
+            .scaleExtent([0.1, 3])
+            .on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+        
+        svg.call(zoom);
+        
+        // Create tooltip
+        tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+    }
+    
+    // Utility function to load CSV file
+    function loadCSV(filename) {
+        return new Promise((resolve, reject) => {
+            Papa.parse(`data/${filename}`, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.errors.length > 0) {
+                        console.warn(`Warnings in ${filename}:`, results.errors);
+                    }
+                    resolve(results.data);
+                },
+                error: function(error) {
+                    reject(error);
+                }
+            });
+        });
+    }
+    
+    // Normalize names for matching
+    function normalizeName(name) {
+        if (!name) return '';
+        return name.toLowerCase()
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+    
+    // Load and process data
+    async function loadData() {
+        try {
+            console.log('Loading CSV files...');
+            
+            // Load all CSV files
+            const [phonebook, outlook, orgUnits] = await Promise.all([
+                loadCSV('phonebook_20250625.csv'),
+                loadCSV('outlook_20250625.csv'),
+                loadCSV('org_units_20250625.csv')
+            ]);
+            
+            console.log('Data loaded:', {
+                phonebook: phonebook.length,
+                outlook: outlook.length,
+                orgUnits: orgUnits.length
+            });
+            
+            return processData(phonebook, outlook, orgUnits);
+            
+        } catch (error) {
+            console.error('Error loading data:', error);
+            showError('Error loading CSV files. Please ensure the files are in the data/ directory and properly formatted.');
+            return null;
+        }
+    }
+    
+    // Show error message
+    function showError(message) {
+        const container = d3.select("#chart");
+        container.selectAll("*").remove();
+        container.append("div")
+            .attr("class", "error")
+            .html(`<strong>Error:</strong> ${message}<br><br>
+                   <small>Check the browser console for more details.</small>`);
+    }
+    
+    // Process and structure the data
+    function processData(phonebook, outlook, orgUnits) {
+        console.log('Processing data...');
+        
+        // Create lookup maps
+        const orgMap = {};
+        orgUnits.forEach(unit => {
+            if (unit.Acronym && unit.Office) {
+                orgMap[unit.Acronym.trim()] = {
+                    name: unit.Office.trim(),
+                    type: (unit.Type || '').toLowerCase().trim(),
+                    acronym: unit.Acronym.trim()
+                };
+            }
+        });
+        
+        console.log('Org units:', orgMap);
+        
+        // Create employee lookup
+        const employees = {};
+        phonebook.forEach(record => {
+            if (record.Email && record.Email.trim()) {
+                const email = record.Email.trim();
+                employees[email] = {
+                    email: email,
+                    name: (record.Name || '').trim(),
+                    title: (record.Title || '').trim(),
+                    phone: (record.Phone || '').trim(),
+                    mobile: (record.Mobile || '').trim(),
+                    office: (record.Office || '').trim(),
+                    location: (record.Location || '').trim(),
+                    manager: (record.Manager || '').trim()
+                };
+            }
+        });
+        
+        console.log('Employees processed:', Object.keys(employees).length);
+        
+        // Build hierarchy starting from the root
+        const hierarchy = {
+            name: 'Federal Housing Finance Agency',
+            type: 'agency',
+            children: []
+        };
+        
+        // Find the top-level director(s)
+        const topLevel = Object.values(employees).filter(emp => {
+            const hasNoManager = !emp.manager || emp.manager.toLowerCase().includes('director') || emp.manager === '';
+            const isDirector = emp.title.toLowerCase().includes('director');
+            return hasNoManager && isDirector;
+        });
+        
+        console.log('Top level employees:', topLevel);
+        
+        if (topLevel.length === 0) {
+            // If no clear director, create a placeholder
+            hierarchy.children.push({
+                name: 'Agency Leadership',
+                type: 'director',
+                children: buildLevel(employees, orgMap, Object.values(employees))
+            });
+        } else {
+            // Add each top-level person
+            topLevel.forEach(director => {
+                const directorNode = {
+                    name: director.name || 'Director',
+                    type: 'director',
+                    data: director,
+                    children: []
+                };
+                
+                // Find their direct reports
+                buildReportingTree(employees, orgMap, directorNode, director);
+                hierarchy.children.push(directorNode);
+            });
+        }
+        
+        console.log('Hierarchy built:', hierarchy);
+        return hierarchy;
+    }
+    
+    // Build the reporting tree recursively
+    function buildReportingTree(employees, orgMap, parentNode, manager) {
+        if (!manager) return;
+        
+        // Find direct reports to this manager
+        const directReports = Object.values(employees).filter(emp => {
+            if (!emp.manager || emp.email === manager.email) return false;
+            
+            // Normalize names for comparison
+            const empManagerNorm = normalizeName(emp.manager);
+            const managerNameNorm = normalizeName(manager.name);
+            
+            return empManagerNorm === managerNameNorm;
+        });
+        
+        console.log(`Direct reports for ${manager.name}:`, directReports.length);
+        
+        directReports.forEach(employee => {
+            const empNode = {
+                name: employee.name,
+                type: getNodeType(employee, orgMap),
+                data: employee,
+                children: []
+            };
+            
+            parentNode.children.push(empNode);
+            
+            // Recursively add their reports
+            buildReportingTree(employees, orgMap, empNode, employee);
+        });
+    }
+    
+    // Determine node type based on title and office
+    function getNodeType(employee, orgMap) {
+        const title = employee.title.toLowerCase();
+        const office = employee.office;
+        
+        if (title.includes('agency director')) return 'director';
+        if (title.includes('division director')) return 'division';
+        if (title.includes('director')) {
+            // Check if their office is a division
+            if (orgMap[office]?.type === 'division') return 'division';
+            return 'office';
+        }
+        if (title.includes('chief')) return 'branch';
+        return 'employee';
+    }
+    
+    // Render the tree
+    function renderTree(data) {
+        if (!data) return;
+        
+        console.log('Rendering tree...');
+        
+        // Set up the tree layout
+        tree = d3.tree().size([height - 100, width - 200]);
+        
+        root = d3.hierarchy(data);
+        root.x0 = height / 2;
+        root.y0 = 0;
+        
+        // Collapse nodes beyond first two levels initially
+        if (root.children) {
+            root.children.forEach(child => {
+                if (child.children) {
+                    child.children.forEach(collapse);
+                }
+            });
+        }
+        
+        update(root);
+    }
+    
+    // Collapse node and its children
+    function collapse(d) {
+        if (d.children) {
+            d._children = d.children;
+            d._children.forEach(collapse);
+            d.children = null;
+        }
+    }
+    
+    // Update the tree visualization
+    function update(source) {
+        const treeData = tree(root);
+        const nodes = treeData.descendants();
+        const links = treeData.descendants().slice(1);
+        
+        // Normalize for fixed-depth
+        nodes.forEach(d => d.y = d.depth * 200);
+        
+        // Update nodes
+        const node = g.selectAll('g.node')
+            .data(nodes, d => d.id || (d.id = ++i));
+        
+        const nodeEnter = node.enter().append('g')
+            .attr('class', d => `node ${d.data.type}`)
+            .attr('transform', d => `translate(${source.y0},${source.x0})`)
+            .on('click', click)
+            .on('mouseover', showTooltip)
+            .on('mouseout', hideTooltip);
+        
+        nodeEnter.append('circle')
+            .attr('r', 1e-6);
+        
+        nodeEnter.append('text')
+            .attr('dy', '.35em')
+            .attr('x', d => d.children || d._children ? -13 : 13)
+            .attr('text-anchor', d => d.children || d._children ? 'end' : 'start')
+            .text(d => {
+                if (d.data.data?.title) {
+                    return `${d.data.name}`;
+                }
+                return d.data.name;
+            })
+            .style('fill-opacity', 1e-6);
+        
+        const nodeUpdate = nodeEnter.merge(node);
+        
+        nodeUpdate.transition()
+            .duration(750)
+            .attr('transform', d => `translate(${d.y},${d.x})`);
+        
+        nodeUpdate.select('circle')
+            .transition()
+            .duration(750)
+            .attr('r', d => {
+                switch(d.data.type) {
+                    case 'director': return 10;
+                    case 'division': return 8;
+                    case 'office': return 7;
+                    case 'branch': return 6;
+                    default: return 5;
+                }
+            });
+        
+        nodeUpdate.select('text')
+            .transition()
+            .duration(750)
+            .style('fill-opacity', 1);
+        
+        const nodeExit = node.exit().transition()
+            .duration(750)
+            .attr('transform', d => `translate(${source.y},${source.x})`)
+            .remove();
+        
+        nodeExit.select('circle').attr('r', 1e-6);
+        nodeExit.select('text').style('fill-opacity', 1e-6);
+        
+        // Update links
+        const link = g.selectAll('path.link')
+            .data(links, d => d.id);
+        
+        const linkEnter = link.enter().insert('path', 'g')
+            .attr('class', 'link')
+            .attr('d', d => {
+                const o = {x: source.x0, y: source.y0};
+                return diagonal(o, o);
+            });
+        
+        const linkUpdate = linkEnter.merge(link);
+        
+        linkUpdate.transition()
+            .duration(750)
+            .attr('d', d => diagonal(d, d.parent));
+        
+        link.exit().transition()
+            .duration(750)
+            .attr('d', d => {
+                const o = {x: source.x, y: source.y};
+                return diagonal(o, o);
+            })
+            .remove();
+        
+        nodes.forEach(d => {
+            d.x0 = d.x;
+            d.y0 = d.y;
+        });
+    }
+    
+    // Create diagonal path
+    function diagonal(s, d) {
+        return `M ${s.y} ${s.x}
+                C ${(s.y + d.y) / 2} ${s.x},
+                  ${(s.y + d.y) / 2} ${d.x},
+                  ${d.y} ${d.x}`;
+    }
+    
+    // Handle node clicks
+    function click(event, d) {
+        if (d.children) {
+            d._children = d.children;
+            d.children = null;
+        } else {
+            d.children = d._children;
+            d._children = null;
+        }
+        update(d);
+    }
+    
+    // Show tooltip
+    function showTooltip(event, d) {
+        if (!d.data.data) return;
+        
+        const data = d.data.data;
+        let content = `<strong>${data.name}</strong><br/>`;
+        if (data.title) content += `Title: ${data.title}<br/>`;
+        if (data.email) content += `Email: ${data.email}<br/>`;
+        if (data.phone) content += `Phone: ${data.phone}<br/>`;
+        if (data.mobile) content += `Mobile: ${data.mobile}<br/>`;
+        if (data.office) content += `Office: ${data.office}<br/>`;
+        if (data.location) content += `Location: ${data.location}<br/>`;
+        if (data.manager) content += `Manager: ${data.manager}`;
+        
+        tooltip.transition()
+            .duration(200)
+            .style("opacity", .9);
+        
+        tooltip.html(content)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 10) + "px");
+    }
+    
+    // Hide tooltip
+    function hideTooltip() {
+        tooltip.transition()
+            .duration(500)
+            .style("opacity", 0);
+    }
+    
+    // Control functions
+    function expandAll() {
+        function expand(d) {
+            if (d._children) {
+                d.children = d._children;
+                d._children = null;
+            }
+            if (d.children) {
+                d.children.forEach(expand);
+            }
+        }
+        expand(root);
+        update(root);
+    }
+    
+    function collapseAll() {
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapse);
+                d.children = null;
+            }
+        }
+        if (root.children) {
+            root.children.forEach(collapse);
+        }
+        update(root);
+    }
+    
+    function resetZoom() {
+        svg.transition().duration(750).call(
+            zoom.transform,
+            d3.zoomIdentity
+        );
+    }
+    
+    // Start the application
+    document.addEventListener('DOMContentLoaded', async () => {
+        console.log('Initializing org chart...');
+        initChart();
+        const data = await loadData();
+        if (data) {
+            renderTree(data);
+        }
+    });
+</script>
+
+</body>
+</html>
